@@ -1,0 +1,41 @@
+[project]
+name = "nanochat-mlx"
+version = "0.1.0"
+description = "Train your own ChatGPT on Apple Silicon — MLX port of nanochat"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mlx>=0.22.0",
+    "datasets>=4.0.0",
+    "fastapi>=0.117.1",
+    "numpy>=1.24.0",
+    "pyarrow>=14.0.0",
+    "regex>=2024.0.0",
+    "requests>=2.28.0",
+    "rustbpe>=0.1.0",
+    "scipy>=1.10.0",
+    "tabulate>=0.9.0",
+    "tiktoken>=0.5.0",
+    "tokenizers>=0.15.0",
+    "transformers>=4.36.0",
+    "uvicorn>=0.24.0",
+    "huggingface-hub>=0.20.0",
+]
+
+[project.optional-dependencies]
+convert = ["torch>=2.0.0"]
+dev = ["pytest>=8.0.0"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
