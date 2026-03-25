@@ -16,7 +16,7 @@ from functools import partial
 
 import mlx.core as mx
 
-from nanochat_mlx.common import print0, set_memory_limit
+from nanochat_mlx.common import SetupError, print0, print_setup_error, set_memory_limit
 from scripts.chat import load_model
 from nanochat_mlx.engine import Engine
 
@@ -141,7 +141,7 @@ def run_chat_eval(task_name, model, tokenizer, engine,
     return acc
 
 
-if __name__ == "__main__":
+def main(argv=None):
     parser = argparse.ArgumentParser(description="Evaluate MLX chat model")
     parser.add_argument('-d', '--depth', type=int, default=12, help='Model depth')
     parser.add_argument('-i', '--source', type=str, default='sft', help='Checkpoint source: sft|base')
@@ -155,14 +155,14 @@ if __name__ == "__main__":
     parser.add_argument('-b', '--batch-size', type=int, default=8, help='Batch size for categorical eval')
     parser.add_argument('-x', '--max-problems', type=int, default=None, help='Max problems per task')
     parser.add_argument('--memory-limit-gb', type=float, default=16.0, help='MLX memory limit')
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     set_memory_limit(args.memory_limit_gb)
 
     # Load model
     from nanochat_mlx.tokenizer import get_tokenizer
-    tokenizer = get_tokenizer()
     model = load_model(depth=args.depth, step=args.step, source=args.source)
+    tokenizer = get_tokenizer()
     engine = Engine(model, tokenizer)
 
     # Tasks
@@ -197,3 +197,12 @@ if __name__ == "__main__":
             centered_sum += (acc - baseline) / (1.0 - baseline)
         chatcore = centered_sum / len(results)
         print0(f"\nChatCORE: {chatcore:.4f}")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except SetupError as exc:
+        print_setup_error(exc)
+        raise SystemExit(2)

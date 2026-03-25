@@ -8,6 +8,7 @@ Port of scripts/chat_sft.py training loop, adapted for MLX single-device.
 import os
 import json
 import time
+import math
 import urllib.request
 
 import mlx.core as mx
@@ -70,6 +71,7 @@ def sft(args):
     """Run SFT training on a pretrained MLX base model."""
     from nanochat_mlx.tokenizer import get_tokenizer
     from nanochat_mlx.common import set_memory_limit
+    from nanochat_mlx.preflight import require_checkpoint
 
     from tasks.common import TaskMixture
     from tasks.gsm8k import GSM8K
@@ -81,27 +83,26 @@ def sft(args):
     # Memory limit
     set_memory_limit(args.memory_limit_gb)
 
-    # Tokenizer
-    tokenizer = get_tokenizer()
-    vocab_size = tokenizer.get_vocab_size()
-    print0(f"Vocab size: {vocab_size:,}")
-
     # --- Load pretrained base checkpoint ---
     base_dir = get_base_dir()
     base_ckpt_dir = os.path.join(base_dir, "mlx_checkpoints", f"d{args.depth}")
 
     if args.step is not None:
-        weights_path = os.path.join(base_ckpt_dir, f"step_{args.step:06d}.safetensors")
-        meta_path = os.path.join(base_ckpt_dir, f"step_{args.step:06d}_meta.json")
-        assert os.path.exists(weights_path), f"Checkpoint not found: {weights_path}"
+        weights_path, meta_path = require_checkpoint(args.depth, source="base", step=args.step)
         with open(meta_path) as f:
             meta = json.load(f)
     else:
+        require_checkpoint(args.depth, source="base")
         weights_path, meta_path, meta = _find_latest_checkpoint(base_ckpt_dir)
         assert meta is not None, f"No base checkpoint found in {base_ckpt_dir}"
 
     print0(f"Loading base checkpoint: {weights_path}")
     print0(f"  depth={meta['depth']}, n_embd={meta['n_embd']}, step={meta['step']}")
+
+    # Tokenizer
+    tokenizer = get_tokenizer()
+    vocab_size = tokenizer.get_vocab_size()
+    print0(f"Vocab size: {vocab_size:,}")
 
     # Build model from checkpoint metadata
     window_pattern = args.window_pattern if args.window_pattern else meta.get("window_pattern", "L")
@@ -266,6 +267,9 @@ def sft(args):
                 last_step = True
 
             loss, grads = loss_grad_fn(model, inputs, targets)
+            loss_value = loss.item()
+            if not math.isfinite(loss_value) or loss_value > 100:
+                raise RuntimeError(f"SFT diverged: non-finite or exploding loss ({loss_value})")
 
             if accum_grads is None:
                 accum_grads = grads
@@ -273,7 +277,7 @@ def sft(args):
                 accum_grads = tree_map(lambda a, b: a + b, accum_grads, grads)
 
             mx.eval(loss, accum_grads)
-            accum_loss += loss.item()
+            accum_loss += loss_value
 
         if accum_grads is None:
             # No data was consumed this step (dataset exhausted before first micro-batch)

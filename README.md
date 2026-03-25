@@ -18,7 +18,7 @@ A self-contained MLX port of nanochat that runs entirely on Apple Silicon. One c
 ## Quick Start
 
 ```bash
-git clone https://github.com/your-username/nanochat-mlx.git
+git clone https://github.com/scasella/nanochat-mlx.git
 cd nanochat-mlx
 uv sync
 python -m scripts.quickstart
@@ -42,8 +42,8 @@ Or use the GUI: run `python -m scripts.quickstart`, then click "Import from Hugg
 Run each step manually for full control:
 
 ```bash
-# 1. Download data (8 shards, ~800MB, enough for dev)
-python -m nanochat_mlx.dataset -n 8
+# 1. Download data (minimum 2 shards so train/val split exists)
+python -m nanochat_mlx.dataset -n 2
 
 # 2. Train BPE tokenizer (vocab size 32768)
 python -m scripts.tok_train
@@ -89,6 +89,8 @@ Recommended RAM by depth:
 - **8 GB** -- depth 4 (quick tests and debugging)
 - **16 GB** -- depth 12 (reasonable quality training)
 - **32 GB+** -- depth 20 and above (good to full quality)
+
+For a 24 GB Apple Silicon laptop, the recommended smoke-test path is depth 4 with low memory caps and 2-4 shards.
 
 ## Project Structure
 

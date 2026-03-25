@@ -12,24 +12,41 @@ Usage:
 import argparse
 import asyncio
 import gc
+import importlib.util
 import json
 import os
 import re
 import sys
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, HTMLResponse
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from pydantic import BaseModel
-from typing import List
 
-parser = argparse.ArgumentParser(description="NanoChat MLX Quickstart")
-parser.add_argument("--port", type=int, default=8000)
-parser.add_argument("--host", type=str, default="127.0.0.1")
-parser.add_argument("--memory-limit-gb", type=float, default=8.0,
-                    help="MLX memory limit in GB (default 8, conservative for shared use)")
-args = parser.parse_args()
+from nanochat_mlx.common import SetupError
+from nanochat_mlx.preflight import (
+    count_downloaded_shards,
+    require_checkpoint,
+    require_tokenizer,
+    require_training_data,
+)
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(description="NanoChat MLX Quickstart")
+    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--host", type=str, default="127.0.0.1")
+    parser.add_argument(
+        "--memory-limit-gb",
+        type=float,
+        default=8.0,
+        help="MLX memory limit in GB (default 8, conservative for shared use)",
+    )
+    return parser
+
+
+args = argparse.Namespace(port=8000, host="127.0.0.1", memory_limit_gb=8.0)
 
 # --- Globals ---
 
@@ -56,13 +73,11 @@ def get_base_dir():
 def check_status():
     """Check which pipeline stages are complete by inspecting the filesystem."""
     base = get_base_dir()
-    data_dir = os.path.join(base, "base_data")
     tok_path = os.path.join(base, "tokenizer", "tokenizer.pkl")
     ckpt_base = os.path.join(base, "mlx_checkpoints")
+    shard_count = count_downloaded_shards(base)
 
-    data_ready = os.path.isdir(data_dir) and any(
-        f.endswith(".parquet") for f in os.listdir(data_dir)
-    ) if os.path.isdir(data_dir) else False
+    data_ready = shard_count >= 2
 
     tok_ready = os.path.isfile(tok_path)
 
@@ -93,6 +108,7 @@ def check_status():
 
     return {
         "data": data_ready,
+        "data_shards": shard_count,
         "tokenizer": tok_ready,
         "train": trained,
         "sft": sft_trained,
@@ -114,6 +130,14 @@ app.add_middleware(
 )
 
 
+def sse_error_response(message, code=400):
+    """Return a one-shot SSE error response that the UI can render."""
+    async def stream():
+        yield f"data: {json.dumps({'type': 'error', 'text': message, 'code': code})}\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+
 @app.get("/")
 async def root():
     ui_path = os.path.join(os.path.dirname(__file__), "..", "nanochat_mlx", "quickstart_ui.html")
@@ -122,9 +146,31 @@ async def root():
         return HTMLResponse(content=f.read())
 
 
+@app.get("/favicon.ico")
+async def favicon():
+    return Response(status_code=204)
+
+
 @app.get("/status")
 async def status():
     return check_status()
+
+
+def preflight_stage(stage: str, depth: int, step: int):
+    """Validate stage prerequisites before launching subprocesses."""
+    if stage == "tokenizer":
+        require_training_data()
+    elif stage == "train":
+        require_training_data()
+        require_tokenizer()
+    elif stage == "sft":
+        require_checkpoint(depth=depth, source="base", step=step if step > 0 else None)
+        require_tokenizer()
+    elif stage == "import" and importlib.util.find_spec("torch") is None:
+        raise SetupError(
+            "HuggingFace import requires the optional convert dependencies. "
+            "Install them first with: uv sync --extra convert"
+        )
 
 
 @app.get("/run/{stage}")
@@ -149,47 +195,53 @@ async def run_stage(stage: str, n_shards: int = 4, depth: int = 4,
 
     python = sys.executable
 
-    if stage == "data":
-        cmd = [python, "-m", "nanochat_mlx.dataset", "-n", str(n_shards)]
-    elif stage == "tokenizer":
-        cmd = [python, "-m", "scripts.tok_train"]
-    elif stage == "train":
-        cmd = [python, "-m", "scripts.train",
-               f"--depth={depth}",
-               f"--max-seq-len={max_seq_len}",
-               f"--window-pattern={window_pattern}",
-               f"--device-batch-size={device_batch_size}",
-               f"--memory-limit-gb={memory_limit_gb}",
-               f"--eval-every={eval_every}"]
-        if num_iterations > 0:
-            cmd.append(f"--num-iterations={num_iterations}")
-        # Default: save every 500 steps so stopping early still produces a checkpoint
-        effective_save_every = save_every if save_every > 0 else 500
-        cmd.append(f"--save-every={effective_save_every}")
-        if use_simple_adamw:
-            cmd.append("--use-simple-adamw")
-    elif stage == "sft":
-        cmd = [python, "-m", "scripts.sft",
-               f"--depth={depth}",
-               f"--device-batch-size={device_batch_size}",
-               f"--memory-limit-gb={memory_limit_gb}",
-               f"--eval-every={eval_every}"]
-        if step > 0:
-            cmd.append(f"--step={step}")
-        if num_iterations > 0:
-            cmd.append(f"--num-iterations={num_iterations}")
-        effective_save_every = save_every if save_every > 0 else 500
-        cmd.append(f"--save-every={effective_save_every}")
-    elif stage == "import":
-        cmd = [python, "-m", "scripts.convert_from_hf",
-               f"--repo={repo}",
-               f"--memory-limit-gb={memory_limit_gb}"]
-        if force_tokenizer:
-            cmd.append("--force")
-        if skip_verify:
-            cmd.append("--skip-verify")
-    else:
-        raise HTTPException(status_code=400, detail=f"Unknown stage: {stage}")
+    try:
+        if stage == "data":
+            cmd = [python, "-m", "nanochat_mlx.dataset", "-n", str(n_shards)]
+        elif stage == "tokenizer":
+            preflight_stage(stage, depth, step)
+            cmd = [python, "-m", "scripts.tok_train"]
+        elif stage == "train":
+            preflight_stage(stage, depth, step)
+            cmd = [python, "-m", "scripts.train",
+                   f"--depth={depth}",
+                   f"--max-seq-len={max_seq_len}",
+                   f"--window-pattern={window_pattern}",
+                   f"--device-batch-size={device_batch_size}",
+                   f"--memory-limit-gb={memory_limit_gb}",
+                   f"--eval-every={eval_every}"]
+            if num_iterations > 0:
+                cmd.append(f"--num-iterations={num_iterations}")
+            effective_save_every = save_every if save_every > 0 else 500
+            cmd.append(f"--save-every={effective_save_every}")
+            if use_simple_adamw:
+                cmd.append("--use-simple-adamw")
+        elif stage == "sft":
+            preflight_stage(stage, depth, step)
+            cmd = [python, "-m", "scripts.sft",
+                   f"--depth={depth}",
+                   f"--device-batch-size={device_batch_size}",
+                   f"--memory-limit-gb={memory_limit_gb}",
+                   f"--eval-every={eval_every}"]
+            if step > 0:
+                cmd.append(f"--step={step}")
+            if num_iterations > 0:
+                cmd.append(f"--num-iterations={num_iterations}")
+            effective_save_every = save_every if save_every > 0 else 500
+            cmd.append(f"--save-every={effective_save_every}")
+        elif stage == "import":
+            preflight_stage(stage, depth, step)
+            cmd = [python, "-m", "scripts.convert_from_hf",
+                   f"--repo={repo}",
+                   f"--memory-limit-gb={memory_limit_gb}"]
+            if force_tokenizer:
+                cmd.append("--force")
+            if skip_verify:
+                cmd.append("--skip-verify")
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown stage: {stage}")
+    except SetupError as exc:
+        return sse_error_response(str(exc))
 
     def _low_priority():
         """Set subprocess to low CPU/IO priority so it doesn't starve other apps."""
@@ -322,15 +374,18 @@ async def chat_load(req: LoadRequest):
     from nanochat_mlx.tokenizer import get_tokenizer
     from nanochat_mlx.engine import Engine
 
-    model = load_model(depth=req.depth, step=req.step, source=req.source)
-    tokenizer = get_tokenizer()
-    loaded_engine = Engine(model, tokenizer)
-    loaded_tokenizer = tokenizer
-    loaded_model = model
-    loaded_depth = req.depth
-    loaded_step = req.step
-    loaded_source = req.source
-    return {"status": "loaded", "depth": req.depth, "source": req.source}
+    try:
+        model = load_model(depth=req.depth, step=req.step, source=req.source)
+        tokenizer = get_tokenizer()
+        loaded_engine = Engine(model, tokenizer)
+        loaded_tokenizer = tokenizer
+        loaded_model = model
+        loaded_depth = req.depth
+        loaded_step = req.step
+        loaded_source = req.source
+        return {"status": "loaded", "depth": req.depth, "source": req.source}
+    except SetupError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/chat/unload")
@@ -417,7 +472,14 @@ async def chat_completions(request: ChatRequest):
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
-if __name__ == "__main__":
+def main(argv=None):
+    global args
+    args = build_parser().parse_args(argv)
     import uvicorn
     print(f"NanoChat MLX Quickstart → http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

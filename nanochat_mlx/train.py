@@ -108,9 +108,13 @@ def train(args):
     from nanochat_mlx.tokenizer import get_tokenizer
     from nanochat_mlx.dataloader import dataloader_bos_bestfit
     from nanochat_mlx.common import set_memory_limit
+    from nanochat_mlx.preflight import require_training_data
 
     # Memory limit
     set_memory_limit(args.memory_limit_gb)
+
+    # Data
+    require_training_data()
 
     # Tokenizer
     tokenizer = get_tokenizer()
@@ -396,6 +400,9 @@ def train(args):
             inputs, targets, dataloader_state = next(train_loader)
 
             loss, grads = loss_grad_fn(model, inputs, targets)
+            loss_value = loss.item()
+            if math.isnan(loss_value) or loss_value > 100:
+                raise RuntimeError(f"Training diverged: non-finite or exploding loss ({loss_value})")
 
             if accum_grads is None:
                 accum_grads = grads
@@ -404,7 +411,7 @@ def train(args):
 
             # Evaluate to prevent graph buildup
             mx.eval(loss, accum_grads)
-            accum_loss += loss.item()
+            accum_loss += loss_value
 
         # Average gradients
         if grad_accum_steps > 1:

@@ -486,30 +486,50 @@ document.getElementById('chatInput').oninput = function() {
 };
 
 // ─── Status ──────────────────────────────────────────────────────────────────
+function applyStatus(s) {
+    for (let i = 0; i < NUM_STEPS; i++) stepDone[i] = false;
+
+    stepDone[0] = !!s.data;
+    stepDone[1] = !!s.tokenizer;
+    stepDone[2] = !!s.train && Object.keys(s.train).length > 0;
+    stepDone[3] = !!s.sft && Object.keys(s.sft).length > 0;
+    stepDone[4] = !!s.chat;
+
+    modelLoaded = !!s.chat;
+    document.getElementById('btnUnload').style.display = modelLoaded ? '' : 'none';
+
+    const empty = document.getElementById('chatEmpty');
+    if (modelLoaded) {
+        if (empty) empty.style.display = 'none';
+        document.getElementById('chatSend').disabled = !document.getElementById('chatInput').value.trim();
+        if (s.chat_model) {
+            const srcLabel = s.chat_model.source === 'sft' ? ' SFT' : '';
+            document.getElementById('loadStatus').textContent = `Loaded d${s.chat_model.depth}${srcLabel} step ${s.chat_model.step}`;
+        }
+    } else {
+        if (empty) empty.style.display = '';
+        document.getElementById('chatSend').disabled = true;
+        if (document.getElementById('loadStatus').textContent.startsWith('Loaded d')) {
+            document.getElementById('loadStatus').textContent = '';
+        }
+    }
+
+    updateNav();
+}
+
 async function fetchStatus() {
     try {
         const r = await fetch('/status');
         const s = await r.json();
-        if (s.data) markDone(0);
-        if (s.tokenizer) markDone(1);
-        if (Object.keys(s.train).length > 0) markDone(2);
-        if (s.sft && Object.keys(s.sft).length > 0) markDone(3);
-        if (s.chat) {
-            markDone(4);
-            modelLoaded = true;
-            document.getElementById('chatEmpty').style.display = 'none';
-            document.getElementById('chatSend').disabled = false;
-            document.getElementById('btnUnload').style.display = '';
-            if (s.chat_model) {
-                const srcLabel = s.chat_model.source === 'sft' ? ' SFT' : '';
-                document.getElementById('loadStatus').textContent = `Loaded d${s.chat_model.depth}${srcLabel} step ${s.chat_model.step}`;
-            }
-            goStep(4);
-        }
-        updateNav();
+        applyStatus(s);
+        if (s.chat) goStep(4);
     } catch(e) { console.error(e); }
-    loadCheckpoints();
-    loadSftBaseModels();
+    await Promise.all([loadCheckpoints(), loadSftBaseModels()]);
+}
+
+async function refreshAfterStage(nextStep = null) {
+    await fetchStatus();
+    if (nextStep !== null && canAccess(nextStep)) goStep(nextStep);
 }
 
 // ─── Navigation ──────────────────────────────────────────────────────────────
@@ -596,7 +616,7 @@ function runData() {
     btn.disabled = true;
     setIconRunning(0);
     runSSE(`/run/data?n_shards=${n}`, 'term0', {
-        onDone: () => { markDone(0); btn.disabled = false; goStep(1); },
+        onDone: async () => { btn.disabled = false; await refreshAfterStage(1); },
         onError: () => { btn.disabled = false; clearIconRunning(0); },
     });
 }
@@ -607,7 +627,7 @@ function runTok() {
     btn.disabled = true;
     setIconRunning(1);
     runSSE('/run/tokenizer', 'term1', {
-        onDone: () => { markDone(1); btn.disabled = false; goStep(2); },
+        onDone: async () => { btn.disabled = false; await refreshAfterStage(2); },
         onError: () => { btn.disabled = false; clearIconRunning(1); },
     });
 }
@@ -650,7 +670,7 @@ function runImport() {
     runningStep = 2;
 
     importES = runSSE(`/run/import?${params}`, 'termImport', {
-        onDone: () => { importDone(); markDone(0); markDone(1); markDone(2); loadCheckpoints(); loadSftBaseModels(); goStep(3); },
+        onDone: async () => { importDone(); await refreshAfterStage(3); },
         onError: () => { importDone(); },
     });
 }
@@ -709,7 +729,7 @@ function runTrain() {
             lossData.push({ step: m.step, loss: m.loss });
             scheduleChartDraw('lossChart', lossData);
         },
-        onDone: () => { trainDone(); markDone(2); loadCheckpoints(); loadSftBaseModels(); goStep(3); },
+        onDone: async () => { trainDone(); await refreshAfterStage(3); },
         onError: () => { trainDone(); },
     });
 }
@@ -777,7 +797,7 @@ function runSft() {
             sftLossData.push({ step: m.step, loss: m.loss });
             scheduleChartDraw('sftLossChart', sftLossData);
         },
-        onDone: () => { sftDone(); markDone(3); loadCheckpoints(); },
+        onDone: async () => { sftDone(); await refreshAfterStage(4); },
         onError: () => { sftDone(); },
     });
 }
@@ -933,12 +953,12 @@ async function loadModel() {
         });
         if (!r.ok) throw new Error(await r.text());
         modelLoaded = true;
-        markDone(4);
         const srcLabel = source === 'sft' ? ' SFT' : '';
         status.textContent = `Loaded d${depth}${srcLabel} step ${step}`;
         document.getElementById('chatEmpty').style.display = 'none';
-        document.getElementById('chatSend').disabled = false;
+        document.getElementById('chatSend').disabled = !document.getElementById('chatInput').value.trim();
         document.getElementById('btnUnload').style.display = '';
+        await fetchStatus();
     } catch(e) {
         status.textContent = 'Error: ' + e.message;
     } finally {
@@ -949,13 +969,8 @@ async function loadModel() {
 async function unloadModel() {
     try {
         await fetch('/chat/unload', { method: 'POST' });
-        modelLoaded = false;
-        stepDone[4] = false;
-        updateNav();
         document.getElementById('loadStatus').textContent = 'Model unloaded (memory freed)';
-        document.getElementById('chatSend').disabled = true;
-        document.getElementById('btnUnload').style.display = 'none';
-        document.getElementById('chatEmpty').style.display = '';
+        await fetchStatus();
     } catch(e) { console.error(e); }
 }
 
@@ -1002,6 +1017,7 @@ async function sendChat() {
                 max_tokens: 256,
             }),
         });
+        if (!r.ok) throw new Error(await r.text());
 
         const reader = r.body.getReader();
         const decoder = new TextDecoder();

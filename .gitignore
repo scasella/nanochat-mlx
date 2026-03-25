@@ -4,6 +4,8 @@ __pycache__/
 dist/
 build/
 .venv/
+.pytest_cache/
+.DS_Store
 *.safetensors
 *.pt
 *.npy

@@ -3,12 +3,22 @@ Common utilities for nanochat MLX.
 """
 
 import os
+import sys
 import mlx.core as mx
+
+
+class SetupError(RuntimeError):
+    """Raised when required local artifacts are missing or incomplete."""
 
 
 def print0(s="", **kwargs):
     """Print (no DDP, always rank 0)."""
     print(s, **kwargs)
+
+
+def print_setup_error(exc):
+    """Render setup problems without a Python traceback."""
+    print(f"Setup error: {exc}", file=sys.stderr)
 
 
 def get_base_dir():

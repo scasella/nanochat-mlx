@@ -11,7 +11,9 @@ import argparse
 
 import mlx.core as mx
 
+from nanochat_mlx.common import SetupError, print_setup_error
 from nanochat_mlx.gpt import GPT, GPTConfig
+from nanochat_mlx.preflight import require_checkpoint
 from nanochat_mlx.train import _load_weights_into_model
 from nanochat_mlx.engine import Engine
 from nanochat_mlx.common import print0, get_base_dir, set_memory_limit
@@ -31,23 +33,7 @@ def load_model(depth=12, step=None, source="base"):
     else:
         ckpt_dir = os.path.join(base_dir, "mlx_checkpoints", f"d{depth}")
 
-    if not os.path.exists(ckpt_dir):
-        raise FileNotFoundError(f"No checkpoint directory found at {ckpt_dir}")
-
-    # Find latest checkpoint if step not specified
-    if step is None:
-        safetensor_files = sorted([
-            f for f in os.listdir(ckpt_dir)
-            if f.endswith(".safetensors") and not f.endswith("_optim.safetensors")
-        ])
-        if not safetensor_files:
-            raise FileNotFoundError(f"No checkpoints found in {ckpt_dir}")
-        latest = safetensor_files[-1]
-        weights_path = os.path.join(ckpt_dir, latest)
-        meta_path = weights_path.replace(".safetensors", "_meta.json")
-    else:
-        weights_path = os.path.join(ckpt_dir, f"step_{step:06d}.safetensors")
-        meta_path = os.path.join(ckpt_dir, f"step_{step:06d}_meta.json")
+    weights_path, meta_path = require_checkpoint(depth=depth, source=source, step=step)
 
     # Load metadata
     import json
@@ -91,8 +77,8 @@ def main():
 
     # Load model and tokenizer
     from nanochat_mlx.tokenizer import get_tokenizer
-    tokenizer = get_tokenizer()
     model = load_model(depth=args.depth, step=args.step, source=args.source)
+    tokenizer = get_tokenizer()
     engine = Engine(model, tokenizer)
     bos_id = tokenizer.get_bos_token_id()
 
@@ -129,7 +115,12 @@ def main():
     else:
         # Default prompt
         generate_response("The capital of France is")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        raise SystemExit(main())
+    except SetupError as exc:
+        print_setup_error(exc)
+        raise SystemExit(2)

@@ -388,9 +388,8 @@ class RustBPETokenizer:
 # nanochat-specific convenience functions
 
 def get_tokenizer():
-    from nanochat_mlx.common import get_base_dir
-    base_dir = get_base_dir()
-    tokenizer_dir = os.path.join(base_dir, "tokenizer")
+    from nanochat_mlx.preflight import require_tokenizer
+    tokenizer_dir = require_tokenizer()["dir"]
     # return HuggingFaceTokenizer.from_directory(tokenizer_dir)
     return RustBPETokenizer.from_directory(tokenizer_dir)
 

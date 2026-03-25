@@ -9,14 +9,12 @@ No DDP, no torch tensors — yields mx.array directly.
 import mlx.core as mx
 import pyarrow.parquet as pq
 
-from nanochat_mlx.dataset import list_parquet_files
+from nanochat_mlx.dataset import get_split_parquet_files
 
 
 def _document_batches(split, resume_state_dict=None, tokenizer_batch_size=128):
     """Infinite iterator over document batches from parquet files (no DDP)."""
-    parquet_paths = list_parquet_files()
-    assert len(parquet_paths) != 0, "No dataset parquet files found, did you run: python -m nanochat_mlx.dataset -n 8?"
-    parquet_paths = parquet_paths[:-1] if split == "train" else parquet_paths[-1:]
+    parquet_paths = get_split_parquet_files(split)
 
     resume_pq_idx = resume_state_dict["pq_idx"] if resume_state_dict is not None else 0
     resume_rg_idx = resume_state_dict["rg_idx"] if resume_state_dict is not None else None

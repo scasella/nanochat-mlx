@@ -14,7 +14,7 @@ import requests
 import pyarrow.parquet as pq
 from multiprocessing import Pool
 
-from nanochat_mlx.common import get_base_dir
+from nanochat_mlx.common import get_base_dir, SetupError
 
 # -----------------------------------------------------------------------------
 # The specifics of the current pretraining dataset
@@ -40,6 +40,30 @@ def list_parquet_files(data_dir=None):
     parquet_paths = [os.path.join(data_dir, f) for f in parquet_files]
     return parquet_paths
 
+
+def get_split_parquet_files(split, data_dir=None):
+    """Return the parquet paths for a logical train/val split."""
+    assert split in ["train", "val"], "split must be 'train' or 'val'"
+    parquet_paths = list_parquet_files(data_dir)
+
+    if not parquet_paths:
+        raise SetupError(
+            "No dataset shards found. Download data first: "
+            "python -m nanochat_mlx.dataset -n 2"
+        )
+
+    if split == "train":
+        if len(parquet_paths) < 2:
+            raise SetupError(
+                "Found only 1 dataset shard. Tokenizer training and base training "
+                "need at least 2 shards because the last shard is reserved for "
+                "validation. Download one more: python -m nanochat_mlx.dataset -n 2"
+            )
+        return parquet_paths[:-1]
+
+    return parquet_paths[-1:]
+
+
 def parquets_iter_batched(split, start=0, step=1):
     """
     Iterate through the dataset, in batches of underlying row_groups for efficiency.
@@ -47,8 +71,7 @@ def parquets_iter_batched(split, start=0, step=1):
     - start/step are useful for skipping rows in DDP. e.g. start=rank, step=world_size
     """
     assert split in ["train", "val"], "split must be 'train' or 'val'"
-    parquet_paths = list_parquet_files()
-    parquet_paths = parquet_paths[:-1] if split == "train" else parquet_paths[-1:]
+    parquet_paths = get_split_parquet_files(split)
     for filepath in parquet_paths:
         pf = pq.ParquetFile(filepath)
         for rg_idx in range(start, pf.num_row_groups, step):
