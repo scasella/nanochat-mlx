@@ -21,6 +21,7 @@ A self-contained MLX port of nanochat that runs entirely on Apple Silicon. One c
 git clone https://github.com/scasella/nanochat-mlx.git
 cd nanochat-mlx
 uv sync
+source .venv/bin/activate
 python -m scripts.quickstart
 ```
 
