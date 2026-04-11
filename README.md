@@ -12,10 +12,23 @@ A self-contained MLX port of nanochat that runs entirely on Apple Silicon. One c
 
 - Single complexity dial: `--depth` sets all hyperparameters automatically
 - Full pipeline: data download, tokenizer training, pretraining, SFT, chat, evaluation
-- Web GUI wizard: `python -m scripts.quickstart` walks you through everything
+- Web GUI wizard: `uv run python -m scripts.quickstart` walks you through everything
 - No PyTorch dependency (unless importing pretrained checkpoints)
 
 ## Quick Start
+
+Use either `uv run` for each command, or activate the virtual environment once.
+
+### Option 1: `uv run` (no shell activation)
+
+```bash
+git clone https://github.com/scasella/nanochat-mlx.git
+cd nanochat-mlx
+uv sync
+uv run python -m scripts.quickstart
+```
+
+### Option 2: activate `.venv`
 
 ```bash
 git clone https://github.com/scasella/nanochat-mlx.git
@@ -27,20 +40,26 @@ python -m scripts.quickstart
 
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000) in your browser. The wizard walks you through downloading data, training a tokenizer, training a model, and chatting with it.
 
+For the rest of the README, use the command style that matches your setup: keep `uv run python -m ...` without shell activation, or drop `uv run` after activating `.venv`.
+
 ## Import a Pretrained Model
 
 Skip training entirely by importing a pretrained model from HuggingFace:
 
 ```bash
 uv sync --extra convert   # Adds torch dependency for checkpoint conversion
-python -m scripts.convert_from_hf --repo nanochat-students/base-d20
+uv run python -m scripts.convert_from_hf --repo nanochat-students/base-d20
 ```
 
-Or use the GUI: run `python -m scripts.quickstart`, then click "Import from HuggingFace" in the training step.
+If `.venv` is activated, you can run the same command as `python -m scripts.convert_from_hf --repo nanochat-students/base-d20`.
+
+Or use the GUI: run `uv run python -m scripts.quickstart` or `python -m scripts.quickstart` from an activated `.venv`, then click "Import from HuggingFace" in the training step.
 
 ## Full Pipeline (CLI)
 
 Run each step manually for full control:
+
+The examples in this section assume `.venv` is activated. If you are not activating the environment, prefix each `python -m ...` command with `uv run`.
 
 ```bash
 # 1. Download data (minimum 2 shards so train/val split exists)
@@ -67,6 +86,8 @@ Or run everything at once with the quickstart script:
 ```bash
 bash runs/quickstart.sh
 ```
+
+Without activating `.venv`, run that script as `uv run bash runs/quickstart.sh`.
 
 ## The Depth Dial
 
@@ -123,10 +144,14 @@ runs/                  Shell scripts
 
 ## Tests
 
+With `.venv` activated:
+
 ```bash
 python -m pytest tests/ -v                    # All tests
 python -m pytest tests/ -v -m "not slow"      # Skip slow tests
 ```
+
+Without activating `.venv`, prefix those commands with `uv run`.
 
 Tests use mock classes to avoid loading real models. MLX-specific tests are skipped when `mlx` is not installed.
 
