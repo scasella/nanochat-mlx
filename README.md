@@ -102,6 +102,17 @@ The `--depth` parameter is the single complexity dial. All other hyperparameters
 
 The "miniseries principle" requires any architectural change to work across all depths.
 
+## Which Mac should I use?
+
+These are practical starting points for people arriving with hardware-compatibility questions first. Actual runtime depends on thermals, data shards, background memory pressure, and whether you are training from scratch or importing a checkpoint.
+
+| Mac | Expected depth | Expected time | Known caveats |
+|-----|----------------|---------------|---------------|
+| M1 with 8 GB unified memory | Depth 4 | Minutes | Best for smoke tests, debugging, and proving the pipeline works. Keep shard counts low. |
+| M1/M2 with 16 GB unified memory | Depth 12 | About 1-2 hours | Good starter path for a real run. Close memory-heavy apps before training. |
+| M3/M4 with 24 GB unified memory | Depth 12 comfortably; depth 20 as an overnight run | About 1 hour at depth 12; many hours at depth 20 | Use depth 4 first, then scale. Depth 20 may need smaller batches or fewer competing apps. |
+| 32 GB+ Apple Silicon | Depth 20+ | About 8 hours at depth 20; roughly a day at depth 26 | Best fit for full-quality local experiments. Depth 26 is still a long run. |
+
 ## Hardware Requirements
 
 Apple Silicon is required (M1, M2, M3, M4 -- any variant).
@@ -113,6 +124,13 @@ Recommended RAM by depth:
 - **32 GB+** -- depth 20 and above (good to full quality)
 
 For a 24 GB Apple Silicon laptop, the recommended smoke-test path is depth 4 with low memory caps and 2-4 shards.
+
+## Related Apple Silicon ML projects
+
+- [gemma4-m4-pro](https://github.com/scasella/gemma4-m4-pro) — Gemma 4 on a 24GB MacBook: measured recipes, runtimes, and fallback paths.
+- [train-gemma4-sudoku-on-your-macbook](https://github.com/scasella/train-gemma4-sudoku-on-your-macbook) — One-notebook Gemma 4 RL on Apple Silicon.
+- [ttt-discover-autoresearch-mlx](https://github.com/scasella/ttt-discover-autoresearch-mlx) — Run RL-driven autoresearch on Apple Silicon.
+- [autoresearch-evo](https://github.com/scasella/autoresearch-evo) — Novelty-search-inspired autonomous research loops, run memory, and agentic review.
 
 ## Project Structure
 
