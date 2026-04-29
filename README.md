@@ -6,6 +6,8 @@ Train your own ChatGPT on Apple Silicon. Minimal MLX port of [Karpathy's nanocha
 
 I wanted to train a chatbot from scratch on my MacBook without touching PyTorch or a cloud GPU. This is a full MLX port of Karpathy's nanochat — one `--depth` dial controls everything from model size to training duration. The whole pipeline runs on Apple Silicon: data download, tokenizer training, pretraining, fine-tuning, and chat.
 
+Check out my [personal site](https://casella.dev) for more projects and research.
+
 ## What is this?
 
 A self-contained MLX port of nanochat that runs entirely on Apple Silicon. One complexity dial (`--depth`) controls everything: model size, learning rate, batch size, and training duration. The full pipeline goes from raw data download to a working chatbot -- no PyTorch required.
